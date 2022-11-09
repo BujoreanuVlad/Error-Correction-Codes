@@ -30,7 +30,9 @@ void CRC_encode(size_t algorithm_index, std::string &msg) {
 
     ull algorithm = algorithms[algorithm_index-1];
     const unsigned int redundancy_level {redundancy_levels[algorithm_index-1]};
+	//get a mask which has as many bits as the polynomial
 	ull mask {generateMask(redundancy_level)};
+	//mask which only has 1 bit turned on to check individual bits
 	ull seeker_mask {1ULL << 63};
 
     size_t index_in_vector {};
@@ -46,8 +48,8 @@ void CRC_encode(size_t algorithm_index, std::string &msg) {
 
         //Our vector "encoded_msg" looks something like this:
         //0x00 0x00 ... 0x00
-        //If we want to add bits to it, then we need to offset them to the left by i*8 since each char has 8 bits 
-        index_in_vector = 100-1-i/8;
+        //If we want to add bits to it, then we need to offset them to the left by 56 - (i%8)*8 bits since each char has 8 bits 
+        index_in_vector = i/8;
         index_in_number = 7 - i%8;
 
         encoded_msg_copy[index_in_vector] = encoded_msg[index_in_vector] |= (tmp << (index_in_number * 8));
@@ -55,24 +57,24 @@ void CRC_encode(size_t algorithm_index, std::string &msg) {
 
 	size_t remainder {};
 
-	for (size_t i {99}; i >= index_in_vector; i--) {
+	for (size_t i {}; i <= index_in_vector; i++) {
 
 		size_t index {};
 		seeker_mask = 1ULL << 63;
 
 		while (index < 64) {
 
-
 			while ((seeker_mask & encoded_msg[i]) == 0 && index <= 64) {
 
+				//while current bit is 0, check the next one
 				seeker_mask = (seeker_mask >> 1);
 				index++;
+				//if we reached the last char exit
 				if (i == index_in_vector && index == (8-index_in_number)*8) {
 					index = 1000;
 					break;
 				}
 			}
-
 
 			if (index > 64)
 				break;
@@ -81,6 +83,7 @@ void CRC_encode(size_t algorithm_index, std::string &msg) {
 				std::cout << std::bitset<64>(encoded_msg[i]) << "\n";
 			#endif
 			
+			//if we can xor the whole polynomial then we do so
 			if (index + redundancy_level < 64) {
 				encoded_msg[i] ^= (algorithm << (64-redundancy_level-index));
 				//This is the +1 coefficient we don't account for in the algorithms[] vector
@@ -89,7 +92,7 @@ void CRC_encode(size_t algorithm_index, std::string &msg) {
 					std::cout << std::bitset<64>(encoded_msg[i]) << "\n";
 				#endif
 			}
-
+			//otherwise we xor what bits we can, and the leftover are xored from the next element
 			else {
 				
 				remainder = redundancy_level+index - 64;
@@ -99,11 +102,11 @@ void CRC_encode(size_t algorithm_index, std::string &msg) {
 					std::cout << "Message i:   " << std::bitset<64>(encoded_msg[i]) << "\n";
 				#endif
 			
-				encoded_msg[i-1] ^= (leftover_algorithm << (64 - remainder));
+				encoded_msg[i+1] ^= (leftover_algorithm << (64 - remainder));
 				//This is the +1 coefficient we don't account for in the algorithms[] vector
-				encoded_msg[i-1] ^= (1ULL << (64-remainder-1));
+				encoded_msg[i+1] ^= (1ULL << (64-remainder-1));
 				#ifdef DEBUG
-					std::cout << "Message i+1: " << std::bitset<64>(encoded_msg[i-1]) << "\n";
+					std::cout << "Message i+1: " << std::bitset<64>(encoded_msg[i+1]) << "\n";
 				#endif
 			}
 		}
@@ -113,22 +116,24 @@ void CRC_encode(size_t algorithm_index, std::string &msg) {
 
 	if (index_in_number) {
 	
+		//if the remainder of the polynomial is completely in an element, retrieve it
 		if (redundancy_level < index_in_number * 8) {
 			crc_code = (encoded_msg[index_in_vector] >> (index_in_number*8 - redundancy_level)) & mask;
 		}
+		//otherwise get a part of it from the first element, and the rest from the next element
 		else {
 			ull crc_part1 {encoded_msg[index_in_vector] & (mask >> (redundancy_level - index_in_number * 8))};
-			ull crc_part2 {(encoded_msg[index_in_vector-1] >> (63 - redundancy_level + index_in_number * 8)) & mask};
+			ull crc_part2 {(encoded_msg[index_in_vector+1] >> (63 - redundancy_level + index_in_number * 8)) & mask};
 			crc_code = crc_part2 | (crc_part1 << (index_in_number * 8));
 		}
 	}
 
 	else {
-		crc_code = (encoded_msg[index_in_vector-1] >> (64 - redundancy_level)) & mask;
+		crc_code = (encoded_msg[index_in_vector+1] >> (64 - redundancy_level)) & mask;
 	}
 
 
-	for (size_t i {99}; i > index_in_vector; i--)
+	for (size_t i {}; i < index_in_vector; i++)
 		std::cout << std::bitset<64>(encoded_msg_copy[i]);
 	switch(index_in_number) {
 		case 0: std::cout << std::bitset<64>(encoded_msg_copy[index_in_vector] >> (index_in_number * 8));break;
@@ -164,6 +169,7 @@ void CRC_encode(size_t algorithm_index, std::string &msg) {
 
 int main() {
 
+	//msg is the message we want to encode and n is index of the algorithm we want to use
     std::string msg {};
     size_t n {};
 
